@@ -7,6 +7,13 @@
   const MAX_FILE_SIZE = 3 * 1024 * 1024;
   const editorRoot = document.getElementById("editor-app");
   const viewerRoot = document.getElementById("viewer-app");
+  const cloudConfig = window.PORTFOLIO_CONFIG || {};
+  const supabaseUrl = String(cloudConfig.supabaseUrl || "").replace(/\/+$/, "");
+  const supabaseAnonKey = String(cloudConfig.supabaseAnonKey || "");
+  const storageBucket = String(cloudConfig.storageBucket || "portfolio-files");
+  const cloudRequested = Boolean(supabaseUrl || supabaseAnonKey);
+  const cloudEnabled = Boolean(supabaseUrl && supabaseAnonKey);
+  const authStorageKey = "portfolio-editor-auth-v1";
 
   const seedData = {
     profile: {
@@ -52,6 +59,9 @@
   let selectedId = data.categories[0]?.id || null;
   let activeView = "category";
   let saveTimer;
+  let hasLocalImportData = false;
+  let authSession = readAuthSession();
+  let cloudUpdatedAt = null;
   const databasePromise = openDatabase().catch((error) => {
     console.warn("IndexedDB недоступна, используется хранилище браузера:", error);
     return null;
@@ -124,7 +134,93 @@
     return item.rows[rowIndex][columnIndex];
   }
 
-  async function loadData() {
+  function readAuthSession() {
+    try {
+      const stored = localStorage.getItem(authStorageKey);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.warn("Не удалось восстановить вход редактора:", error);
+      return null;
+    }
+  }
+
+  function writeAuthSession(session) {
+    authSession = session;
+    if (session) localStorage.setItem(authStorageKey, JSON.stringify(session));
+    else localStorage.removeItem(authStorageKey);
+  }
+
+  async function getAccessToken() {
+    if (!authSession?.access_token) throw new Error("Войдите в редактор, чтобы сохранить изменения.");
+    if (Number(authSession.expires_at) > Date.now() / 1000 + 60) return authSession.access_token;
+    if (!authSession.refresh_token) {
+      writeAuthSession(null);
+      throw new Error("Сеанс редактора истёк. Войдите снова.");
+    }
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { apikey: supabaseAnonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: authSession.refresh_token })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      writeAuthSession(null);
+      throw new Error(result.msg || result.message || "Сеанс истёк. Войдите снова.");
+    }
+    writeAuthSession({ ...result, expires_at: Math.floor(Date.now() / 1000) + result.expires_in });
+    return result.access_token;
+  }
+
+  async function cloudRequest(path, options = {}, requireAuth = false) {
+    const token = requireAuth ? await getAccessToken() : supabaseAnonKey;
+    const response = await fetch(`${supabaseUrl}${path}`, {
+      ...options,
+      headers: {
+        apikey: supabaseAnonKey,
+        ...(requireAuth ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.body instanceof Blob ? {} : { "Content-Type": "application/json" }),
+        ...options.headers
+      }
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Supabase (${response.status}): ${detail || response.statusText}`);
+    }
+    if (response.status === 204) return null;
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  async function signIn(email, password) {
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: supabaseAnonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.msg || result.message || result.error_description || "Не удалось войти. Проверьте email и пароль.");
+    writeAuthSession({ ...result, expires_at: Math.floor(Date.now() / 1000) + result.expires_in });
+  }
+
+  async function loadCloudData() {
+    const rows = await cloudRequest("/rest/v1/portfolio?id=eq.1&select=data,updated_at");
+    if (rows?.length && isPortfolioData(rows[0].data)) {
+      hasLocalImportData = false;
+      cloudUpdatedAt = rows[0].updated_at || null;
+      return migrateDefaultResultItems(rows[0].data);
+    }
+    cloudUpdatedAt = null;
+    if (editorRoot) {
+      const localData = await loadLocalData();
+      if (localData) {
+        hasLocalImportData = true;
+        return localData;
+      }
+    }
+    return structuredClone(seedData);
+  }
+
+  async function loadLocalData() {
     try {
       const database = await databasePromise;
       if (database) {
@@ -132,7 +228,7 @@
         if (isPortfolioData(stored)) return migrateDefaultResultItems(stored);
       }
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) return structuredClone(seedData);
+      if (!stored) return null;
       const parsed = JSON.parse(stored);
       if (!isPortfolioData(parsed)) {
         throw new Error("Сохранённые данные портфолио имеют неверный формат.");
@@ -140,8 +236,15 @@
       return migrateDefaultResultItems(parsed);
     } catch (error) {
       console.error("Не удалось загрузить портфолио:", error);
-      return structuredClone(seedData);
+      return null;
     }
+  }
+
+  async function loadData() {
+    if (cloudRequested && !cloudEnabled) {
+      throw new Error("В config.js укажите и Supabase URL, и publishable/anon key.");
+    }
+    return cloudEnabled ? loadCloudData() : (await loadLocalData()) || structuredClone(seedData);
   }
 
   function persistData() {
@@ -152,12 +255,46 @@
       }).catch((error) => {
         console.error("Не удалось сохранить портфолио:", error);
         updateSaveState("Не удалось сохранить");
-        window.alert("Не удалось сохранить данные в браузере. Возможно, размер файлов слишком большой. Удалите часть файлов и попробуйте снова.");
+        window.alert(cloudEnabled
+          ? `Не удалось сохранить в облако: ${error.message}`
+          : "Не удалось сохранить данные в браузере. Возможно, размер файлов слишком большой. Удалите часть файлов и попробуйте снова.");
       });
     }, 180);
   }
 
+  async function uploadEmbeddedFiles(value) {
+    if (typeof value === "string" && value.startsWith("data:")) {
+      const fileResponse = await fetch(value);
+      const blob = await fileResponse.blob();
+      const extension = ({ "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" })[blob.type] || "bin";
+      const objectPath = `uploads/${newId()}.${extension}`;
+      await cloudRequest(`/storage/v1/object/${encodeURIComponent(storageBucket)}/${objectPath.split("/").map(encodeURIComponent).join("/")}`, {
+        method: "POST",
+        body: blob,
+        headers: { "Content-Type": blob.type || "application/octet-stream", "x-upsert": "false" }
+      }, true);
+      return `${supabaseUrl}/storage/v1/object/public/${encodeURIComponent(storageBucket)}/${objectPath.split("/").map(encodeURIComponent).join("/")}`;
+    }
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) value[index] = await uploadEmbeddedFiles(value[index]);
+    } else if (value && typeof value === "object") {
+      for (const key of Object.keys(value)) value[key] = await uploadEmbeddedFiles(value[key]);
+    }
+    return value;
+  }
+
   async function saveData() {
+    if (cloudEnabled) {
+      await uploadEmbeddedFiles(data);
+      const updatedAt = new Date().toISOString();
+      await cloudRequest("/rest/v1/portfolio?on_conflict=id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ id: 1, data, updated_at: updatedAt })
+      }, true);
+      cloudUpdatedAt = updatedAt;
+      return;
+    }
     const database = await databasePromise;
     if (!database) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -230,6 +367,10 @@
 
   function renderEditor() {
     if (!editorRoot) return;
+    if (cloudEnabled && !authSession) {
+      renderEditorLogin();
+      return;
+    }
     const selectedCategory = getCategory();
     editorRoot.innerHTML = `
       <header class="editor-topbar">
@@ -237,6 +378,7 @@
         <div class="top-actions">
           <span class="save-state" data-save-state><i class="save-dot"></i> Сохранено</span>
           <a class="button button-primary" href="./viewer.html" target="_blank" rel="noopener">Открыть просмотр <span aria-hidden="true">↗</span></a>
+          ${cloudEnabled ? '<button class="button button-quiet button-small" type="button" data-action="logout">Выйти</button>' : ""}
         </div>
       </header>
       <div class="editor-shell">
@@ -252,11 +394,47 @@
           <button class="nav-item add-category-link" type="button" data-action="add-category"><span>＋</span> Добавить раздел</button>
         </aside>
         <main class="editor-main">
+          ${!cloudEnabled ? `<div class="sync-notice sync-warning"><strong>Облачная синхронизация не настроена</strong><span>Сейчас изменения видны только в этом браузере. Настройте Supabase и заполните config.js по инструкции.</span></div>` : ""}
+          ${hasLocalImportData ? `<div class="sync-notice"><strong>Найдены изменения, сохранённые в этом браузере</strong><span>Перенесите их в облако, чтобы посетители и другие устройства увидели портфолио.</span><button class="button button-primary button-small" type="button" data-action="import-local">Импортировать данные этого браузера в облако</button></div>` : ""}
           ${activeView === "profile" ? renderProfileEditor() : selectedCategory ? renderCategoryEditor(selectedCategory) : `
             <section class="panel"><div class="empty-blocks"><span class="empty-icon">＋</span><strong>Пока нет разделов</strong><span>Добавьте первый раздел портфолио.</span><button class="button button-primary button-small" type="button" data-action="add-category">Добавить раздел</button></div></section>`}
         </main>
       </div>`;
     bindEditorEvents();
+  }
+
+  function renderEditorLogin(errorMessage = "") {
+    if (!editorRoot) return;
+    editorRoot.innerHTML = `<main class="login-page">
+      <form class="login-card" data-login-form>
+        <span class="brand-mark">П</span>
+        <p class="eyebrow">Приватный доступ</p>
+        <h1>Вход в редактор</h1>
+        <p class="login-description">Войдите в аккаунт редактора, чтобы изменять и публиковать портфолио.</p>
+        ${errorMessage ? `<p class="login-error" role="alert">${escapeHtml(errorMessage)}</p>` : ""}
+        <div class="field"><label for="login-email">Email</label><input id="login-email" name="email" type="email" autocomplete="username" required /></div>
+        <div class="field"><label for="login-password">Пароль</label><input id="login-password" name="password" type="password" autocomplete="current-password" required /></div>
+        <button class="button button-primary" type="submit">Войти</button>
+        <a class="viewer-link" href="./index.html">Вернуться на сайт</a>
+      </form>
+    </main>`;
+    editorRoot.onsubmit = async (event) => {
+      if (!event.target.matches("[data-login-form]")) return;
+      event.preventDefault();
+      const form = event.target;
+      const submitButton = form.querySelector('[type="submit"]');
+      submitButton.disabled = true;
+      submitButton.textContent = "Входим…";
+      try {
+        await signIn(form.elements.email.value.trim(), form.elements.password.value);
+        data = await loadCloudData();
+        selectedId = data.categories[0]?.id || null;
+        renderEditor();
+      } catch (error) {
+        console.error("Не удалось войти в редактор:", error);
+        renderEditorLogin(error.message);
+      }
+    };
   }
 
   function renderProfileEditor() {
@@ -387,7 +565,12 @@
   function bindEditorEvents() {
     editorRoot.oninput = onEditorInput;
     editorRoot.onchange = onEditorChange;
-    editorRoot.onclick = onEditorClick;
+    editorRoot.onclick = (event) => {
+      onEditorClick(event).catch((error) => {
+        console.error("Не удалось выполнить действие редактора:", error);
+        window.alert(error.message || "Не удалось выполнить действие.");
+      });
+    };
   }
 
   function onEditorInput(event) {
@@ -500,12 +683,31 @@
     }
   }
 
-  function onEditorClick(event) {
+  async function onEditorClick(event) {
     const button = event.target.closest("[data-action]");
     if (!button) return;
     const { action, id } = button.dataset;
     if (action === "profile") {
       activeView = "profile";
+    } else if (action === "logout") {
+      writeAuthSession(null);
+      renderEditor();
+      return;
+    } else if (action === "import-local") {
+      if (!window.confirm("Заменить облачное портфолио данными, сохранёнными в этом браузере?")) return;
+      const localData = await loadLocalData();
+      if (!localData) {
+        hasLocalImportData = false;
+        renderEditor();
+        return;
+      }
+      data = localData;
+      await saveData();
+      hasLocalImportData = false;
+      selectedId = data.categories[0]?.id || null;
+      updateSaveState("Опубликовано");
+      renderEditor();
+      return;
     } else if (action === "select-category") {
       selectedId = id;
       activeView = "category";
@@ -621,6 +823,18 @@
       return;
     }
     viewerRoot.innerHTML = category ? renderViewerCategory(category) : renderViewerHome();
+  }
+
+  async function refreshCloudViewer() {
+    try {
+      const rows = await cloudRequest("/rest/v1/portfolio?id=eq.1&select=data,updated_at");
+      if (!rows?.length || rows[0].updated_at === cloudUpdatedAt || !isPortfolioData(rows[0].data)) return;
+      cloudUpdatedAt = rows[0].updated_at || null;
+      data = migrateDefaultResultItems(rows[0].data);
+      renderViewer();
+    } catch (error) {
+      console.error("Не удалось обновить просмотр портфолио из облака:", error);
+    }
   }
 
   function viewerHeader(title, backHref = "./index.html", backText = "← Портфолиоға оралу") {
@@ -759,10 +973,20 @@
     return `<footer class="viewer-footer">${escapeHtml(quote || "Педагог портфолиосы")}</footer>`;
   }
 
+  function renderStartupError(error) {
+    console.error("Не удалось загрузить портфолио:", error);
+    const root = editorRoot || viewerRoot;
+    if (!root) return;
+    root.innerHTML = `<main class="viewer-error"><div><h1>Не удалось загрузить портфолио</h1><p>${escapeHtml(error.message || "Проверьте настройки Supabase и подключение к интернету.")}</p><button class="button button-outline" type="button" onclick="location.reload()">Попробовать снова</button></div></main>`;
+  }
+
   loadData().then((storedData) => {
     data = storedData;
     selectedId = data.categories[0]?.id || null;
     if (editorRoot) renderEditor();
-    if (viewerRoot) renderViewer();
-  });
+    if (viewerRoot) {
+      renderViewer();
+      if (cloudEnabled) window.setInterval(refreshCloudViewer, 15000);
+    }
+  }).catch(renderStartupError);
 })();

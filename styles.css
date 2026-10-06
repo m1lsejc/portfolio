@@ -126,6 +126,20 @@ button { color: inherit; }
 .add-category-link { width: 100%; margin-top: 10px; text-align: left; }
 
 .editor-main { min-width: 0; }
+.sync-notice { display: grid; gap: 8px; margin: 0 0 20px; padding: 16px 18px; border: 1px solid #cfe3d8; border-radius: 14px; background: #f0f7f2; color: #426858; font-size: 13px; line-height: 1.5; }
+.sync-notice strong { color: #315744; }
+.sync-warning { border-color: #ecd9b9; background: #fff9eb; color: #78603d; }
+.sync-warning strong { color: #74552b; }
+.sync-notice .button { justify-self: start; margin-top: 3px; }
+.login-page { display: grid; min-height: 100vh; place-items: center; padding: 22px; background: radial-gradient(ellipse at 10% 0%, rgb(228 239 234 / 54%), transparent 30rem), var(--paper); }
+.login-card { display: grid; width: min(420px, 100%); gap: 16px; padding: 32px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
+.login-card > .brand-mark { width: 48px; height: 48px; }
+.login-card .eyebrow { margin: 0; }
+.login-card h1 { margin: -10px 0 0; font-family: "Playfair Display", Georgia, serif; font-size: 30px; }
+.login-description { margin: -8px 0 2px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.login-error { margin: 0; padding: 10px 12px; border-radius: 10px; background: #fbefeb; color: #994e3d; font-size: 13px; }
+.login-card .button { width: 100%; }
+.login-card > .viewer-link { justify-self: center; }
 .page-heading { margin: 5px 0 24px; }
 .eyebrow { margin: 0 0 8px; color: var(--gold-dark); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 h1, h2, h3, p { margin-top: 0; }
