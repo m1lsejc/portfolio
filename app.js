@@ -548,7 +548,10 @@
     const headers = Array.isArray(item.headers) ? item.headers : [];
     const rows = Array.isArray(item.rows) ? item.rows : [];
     return `<div class="table-editor-wrap"><table class="table-editor"><thead><tr>${headers.map((header, columnIndex) => `
-      <th><input aria-label="Заголовок столбца ${columnIndex + 1}" data-table-header="${columnIndex}" data-item-id="${escapeHtml(item.id)}" value="${escapeHtml(header)}" placeholder="Столбец ${columnIndex + 1}" /></th>`).join("")}<th class="table-action-cell">Действия</th></tr></thead>
+      <th><div class="table-header-editor">
+        <input aria-label="Заголовок столбца ${columnIndex + 1}" data-table-header="${columnIndex}" data-item-id="${escapeHtml(item.id)}" value="${escapeHtml(header)}" placeholder="Столбец ${columnIndex + 1}" />
+        <button class="button button-danger button-small" type="button" aria-label="Удалить столбец ${columnIndex + 1}" title="Удалить столбец" data-action="delete-table-column" data-column="${columnIndex}" data-id="${escapeHtml(item.id)}">×</button>
+      </div></th>`).join("")}<th class="table-action-cell">Действия</th></tr></thead>
       <tbody>${rows.map((row, rowIndex) => `<tr>${headers.map((_, columnIndex) => `
         <td><div class="table-cell-editor">
           <input aria-label="Текст ячейки ${rowIndex + 1}, ${columnIndex + 1}" data-table-cell="${rowIndex},${columnIndex}" data-item-id="${escapeHtml(item.id)}" value="${escapeHtml(row[columnIndex]?.text || "")}" placeholder="Текст ячейки" />
@@ -559,7 +562,10 @@
           ${row[columnIndex]?.data || row[columnIndex]?.url ? `<button class="button button-quiet button-small" type="button" data-action="remove-table-attachment" data-cell="${rowIndex},${columnIndex}" data-id="${escapeHtml(item.id)}">Убрать вложение</button>` : ""}
         </div></td>`).join("")}
         <td class="table-action-cell"><button class="button button-danger button-small" type="button" data-action="delete-table-row" data-row="${rowIndex}" data-id="${escapeHtml(item.id)}">Удалить строку</button></td></tr>`).join("")}</tbody>
-    </table></div><button class="button button-outline button-small" type="button" data-action="add-table-row" data-id="${escapeHtml(item.id)}">＋ Добавить строку</button>`;
+    </table></div><div class="table-actions">
+      <button class="button button-outline button-small" type="button" data-action="add-table-row" data-id="${escapeHtml(item.id)}">＋ Добавить строку</button>
+      <button class="button button-outline button-small" type="button" data-action="add-table-column" data-id="${escapeHtml(item.id)}">＋ Добавить столбец</button>
+    </div>`;
   }
 
   function bindEditorEvents() {
@@ -737,13 +743,28 @@
         ...(type === "table" ? { headers: ["№", "Название", "Описание"], rows: [[{ text: "", url: "", data: "", fileName: "" }, { text: "", url: "", data: "", fileName: "" }, { text: "", url: "", data: "", fileName: "" }]] } : {})
       });
       persistData();
-    } else if (action === "add-table-row" || action === "delete-table-row") {
+    } else if (action === "add-table-row" || action === "delete-table-row" || action === "add-table-column" || action === "delete-table-column") {
       const item = findItem(id)?.item;
       if (item?.type !== "table") return;
       if (action === "add-table-row") {
         item.rows.push(item.headers.map(() => ({ text: "", url: "", data: "", fileName: "" })));
-      } else {
+      } else if (action === "delete-table-row") {
         item.rows.splice(Number(button.dataset.row), 1);
+      } else if (action === "add-table-column") {
+        item.headers.push(`Столбец ${item.headers.length + 1}`);
+        for (const row of item.rows) {
+          row.push({ text: "", url: "", data: "", fileName: "" });
+        }
+      } else {
+        if (item.headers.length <= 1) {
+          window.alert("В таблице должен остаться хотя бы один столбец.");
+          return;
+        }
+        const column = Number(button.dataset.column);
+        item.headers.splice(column, 1);
+        for (const row of item.rows) {
+          row.splice(column, 1);
+        }
       }
       persistData();
     } else if (action === "remove-table-attachment") {

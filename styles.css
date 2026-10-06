@@ -204,6 +204,9 @@ h1, h2, h3, p { margin-top: 0; }
 .table-editor, .viewer-table { width: 100%; border-collapse: collapse; }
 .table-editor th, .table-editor td, .viewer-table th, .viewer-table td { min-width: 145px; padding: 9px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
 .table-editor th { background: #fdfbf8; }
+.table-header-editor { display: flex; min-width: 155px; align-items: center; gap: 6px; }
+.table-header-editor input { flex: 1; }
+.table-header-editor .button { width: 30px; min-height: 30px; flex: 0 0 30px; padding: 0; }
 .table-editor input { width: 100%; min-width: 110px; padding: 9px; border: 1px solid #e9e1d7; border-radius: 8px; outline: 0; }
 .table-editor input:focus { border-color: #8dbdb4; box-shadow: 0 0 0 3px rgb(70 142 135 / 10%); }
 .table-editor .table-action-cell { min-width: 125px; }
@@ -212,6 +215,7 @@ h1, h2, h3, p { margin-top: 0; }
 .table-cell-editor .table-upload { min-height: 32px; width: fit-content; font-size: 11px; }
 .table-cell-editor .table-upload input { display: none; }
 .table-cell-editor .button { justify-self: start; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .viewer-table th { background: #f5efe5; color: var(--gold-dark); font-weight: 600; }
 .viewer-table td { color: #504940; line-height: 1.55; white-space: pre-wrap; }
 .viewer-table-link { color: var(--gold-dark); font-weight: 600; text-decoration-thickness: 1px; text-underline-offset: 3px; }
