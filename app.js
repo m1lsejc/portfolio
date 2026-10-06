@@ -116,8 +116,19 @@
           item.headers.map((_, index) => {
             const cell = row[index];
             return cell && typeof cell === "object"
-              ? { text: String(cell.text || ""), url: String(cell.url || ""), data: String(cell.data || ""), fileName: String(cell.fileName || "") }
-              : { text: String(cell || ""), url: "", data: "", fileName: "" };
+              ? {
+                text: String(cell.text || ""),
+                url: String(cell.url || ""),
+                data: String(cell.data || ""),
+                fileName: String(cell.fileName || ""),
+                files: Array.isArray(cell.files) ? cell.files.map((file) => ({
+                  id: String(file.id || newId()),
+                  name: String(file.name || ""),
+                  type: String(file.type || "image"),
+                  data: String(file.data || "")
+                })) : []
+              }
+              : { text: String(cell || ""), url: "", data: "", fileName: "", files: [] };
           })
         )) : [];
       }
@@ -129,7 +140,7 @@
     if (item?.type !== "table" || !item.rows[rowIndex]) return null;
     const value = item.rows[rowIndex][columnIndex];
     if (!value || typeof value !== "object") {
-      item.rows[rowIndex][columnIndex] = { text: String(value || ""), url: "", data: "", fileName: "" };
+      item.rows[rowIndex][columnIndex] = { text: String(value || ""), url: "", data: "", fileName: "", files: [] };
     }
     return item.rows[rowIndex][columnIndex];
   }
@@ -362,7 +373,7 @@
   }
 
   function iconFor(type) {
-    return ({ text: "T", link: "↗", image: "▧", pdf: "▤", button: "→", table: "▦", group: "▤" })[type] || "•";
+    return ({ text: "T", link: "↗", image: "▧", pdf: "▤", bundle: "▧", button: "→", table: "▦", group: "▤" })[type] || "•";
   }
 
   function renderEditor() {
@@ -482,6 +493,7 @@
           <button class="button button-outline" type="button" data-action="add-block" data-type="link">＋ Ссылка</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="image">＋ Фото</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="pdf">＋ PDF-документ</button>
+          <button class="button button-outline" type="button" data-action="add-block" data-type="bundle">＋ Набор файлов</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="button">＋ Кнопка</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="table">＋ Таблица</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="group">＋ Вложенный раздел</button>
@@ -490,7 +502,7 @@
   }
 
   function renderBlock(category, item, index, parentId = "") {
-    const labels = { text: "Текст", link: "Ссылка", image: "Фотография", pdf: "PDF-документ", button: "Кнопка", table: "Таблица", group: "Вложенный раздел" };
+    const labels = { text: "Текст", link: "Ссылка", image: "Фотография", pdf: "PDF-документ", bundle: "Набор файлов", button: "Кнопка", table: "Таблица", group: "Вложенный раздел" };
     const titleField = `<div class="field"><label>Название</label><input data-item-field="title" data-item-id="${escapeHtml(item.id)}" value="${escapeHtml(item.title || "")}" placeholder="${labels[item.type] || "Название"}" /></div>`;
     let fields = item.type === "group" ? "" : titleField;
     if (item.type === "group") {
@@ -503,6 +515,7 @@
           <button class="button button-outline" type="button" data-action="add-block" data-type="link" data-parent-id="${escapeHtml(item.id)}">＋ Ссылка</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="image" data-parent-id="${escapeHtml(item.id)}">＋ Фото</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="pdf" data-parent-id="${escapeHtml(item.id)}">＋ PDF-документ</button>
+          <button class="button button-outline" type="button" data-action="add-block" data-type="bundle" data-parent-id="${escapeHtml(item.id)}">＋ Набор файлов</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="button" data-parent-id="${escapeHtml(item.id)}">＋ Кнопка</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="table" data-parent-id="${escapeHtml(item.id)}">＋ Таблица</button>
           <button class="button button-outline" type="button" data-action="add-block" data-type="group" data-parent-id="${escapeHtml(item.id)}">＋ Вложенный раздел</button>
@@ -513,6 +526,17 @@
       fields = `${titleField}<div class="field"><label>Текст</label><textarea data-item-field="text" data-item-id="${escapeHtml(item.id)}" placeholder="Введите текст...">${escapeHtml(item.text || "")}</textarea></div>`;
     } else if (item.type === "table") {
       fields = `${titleField}${renderTableEditor(item)}`;
+    } else if (item.type === "bundle") {
+      const files = Array.isArray(item.files) ? item.files : [];
+      fields = `${titleField}
+        <div class="field"><label>Предварительный просмотр</label><span class="field-hint">Посетители увидят подборку документов и фотографий. Нажатие на файл откроет его отдельно.</span></div>
+        <div class="bundle-editor-list">${files.length ? files.map((file, fileIndex) => `
+          <div class="bundle-editor-file"><span>${file.type === "image" ? "▧" : "▤"} ${escapeHtml(file.name || `Файл ${fileIndex + 1}`)}</span>
+            <button class="button button-danger button-small" type="button" data-action="remove-bundle-file" data-file-index="${fileIndex}" data-id="${escapeHtml(item.id)}">Удалить</button>
+          </div>`).join("") : `<div class="empty-blocks"><strong>Пока нет файлов</strong><span>Добавьте несколько PDF или фотографий в одну подборку.</span></div>`}</div>
+        <div class="field"><label>Добавить документы и фотографии</label><label class="upload-label">Выбрать файлы
+          <input type="file" accept="application/pdf,image/*,.pdf" multiple data-bundle-files data-item-id="${escapeHtml(item.id)}" />
+        </label><span class="field-hint">PDF, JPG, PNG, WebP или GIF. До 3 МБ на файл.</span></div>`;
     } else if (item.type === "link" || item.type === "button") {
       fields = `${titleField}<div class="field"><label>${item.type === "button" ? "Ссылка кнопки" : "Адрес ссылки"}</label><input data-item-field="url" data-item-id="${escapeHtml(item.id)}" type="url" value="${escapeHtml(item.url || "")}" placeholder="https://example.com" /><span class="field-hint">Ссылка откроется в новой вкладке.</span></div>`;
       if (item.type === "button") {
@@ -559,7 +583,14 @@
           <label class="upload-label table-upload">${row[columnIndex]?.fileName ? `Заменить: ${escapeHtml(row[columnIndex].fileName)}` : "Прикрепить PDF / фото"}
             <input type="file" accept="application/pdf,image/*,.pdf" data-table-file="${rowIndex},${columnIndex}" data-item-id="${escapeHtml(item.id)}" />
           </label>
-          ${row[columnIndex]?.data || row[columnIndex]?.url ? `<button class="button button-quiet button-small" type="button" data-action="remove-table-attachment" data-cell="${rowIndex},${columnIndex}" data-id="${escapeHtml(item.id)}">Убрать вложение</button>` : ""}
+          <label class="upload-label table-upload">Добавить набор PDF / фото
+            <input type="file" accept="application/pdf,image/*,.pdf" multiple data-table-bundle="${rowIndex},${columnIndex}" data-item-id="${escapeHtml(item.id)}" />
+          </label>
+          ${row[columnIndex]?.files?.length ? `<div class="bundle-editor-list">${row[columnIndex].files.map((file, fileIndex) => `
+            <div class="bundle-editor-file"><span>${file.type === "image" ? "▧" : "▤"} ${escapeHtml(file.name || `Файл ${fileIndex + 1}`)}</span>
+              <button class="button button-danger button-small" type="button" data-action="remove-table-bundle-file" data-cell="${rowIndex},${columnIndex}" data-file-index="${fileIndex}" data-id="${escapeHtml(item.id)}">Удалить</button>
+            </div>`).join("")}</div>` : ""}
+          ${row[columnIndex]?.data || row[columnIndex]?.url || row[columnIndex]?.files?.length ? `<button class="button button-quiet button-small" type="button" data-action="remove-table-attachment" data-cell="${rowIndex},${columnIndex}" data-id="${escapeHtml(item.id)}">Убрать вложение</button>` : ""}
         </div></td>`).join("")}
         <td class="table-action-cell"><button class="button button-danger button-small" type="button" data-action="delete-table-row" data-row="${rowIndex}" data-id="${escapeHtml(item.id)}">Удалить строку</button></td></tr>`).join("")}</tbody>
     </table></div><div class="table-actions">
@@ -611,6 +642,7 @@
         if (target.value) {
           cell.data = "";
           cell.fileName = "";
+          cell.files = [];
         }
       }
       persistData();
@@ -636,6 +668,35 @@
         item.fileName = file.name;
       }, item.type);
       renderEditor();
+    } else if (target.matches("[data-bundle-files]")) {
+      const item = findItem(target.dataset.itemId)?.item;
+      const files = Array.from(target.files || []);
+      if (item?.type !== "bundle" || !files.length) return;
+      const invalidFile = files.find((file) => (
+        file.size > MAX_FILE_SIZE ||
+        (file.type !== "application/pdf" && !file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".pdf"))
+      ));
+      if (invalidFile) {
+        window.alert(invalidFile.size > MAX_FILE_SIZE
+          ? `Файл «${invalidFile.name}» больше 3 МБ. Выберите файлы меньшего размера.`
+          : `Файл «${invalidFile.name}» не является PDF или изображением.`);
+        target.value = "";
+        return;
+      }
+      try {
+        const uploadedFiles = await Promise.all(files.map(async (file) => ({
+          id: newId(),
+          name: file.name,
+          type: file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+          data: await fileToDataUrl(file)
+        })));
+        item.files = [...(item.files || []), ...uploadedFiles];
+        persistData();
+        renderEditor();
+      } catch (error) {
+        console.error("Не удалось загрузить файлы подборки:", error);
+        window.alert("Не удалось прочитать один или несколько выбранных файлов.");
+      }
     } else if (target.matches("[data-table-file]")) {
       const item = findItem(target.dataset.itemId)?.item;
       const [rowIndex, columnIndex] = target.dataset.tableFile.split(",").map(Number);
@@ -657,11 +718,54 @@
         cell.data = await fileToDataUrl(file);
         cell.fileName = file.name;
         cell.url = "";
+        cell.files = [];
         persistData();
         renderEditor();
       } catch (error) {
         console.error("Не удалось загрузить вложение таблицы:", error);
         window.alert("Не удалось прочитать выбранный файл.");
+      }
+    } else if (target.matches("[data-table-bundle]")) {
+      const item = findItem(target.dataset.itemId)?.item;
+      const [rowIndex, columnIndex] = target.dataset.tableBundle.split(",").map(Number);
+      const cell = ensureTableCell(item, rowIndex, columnIndex);
+      const files = Array.from(target.files || []);
+      if (!cell || !files.length) return;
+      const invalidFile = files.find((file) => (
+        file.size > MAX_FILE_SIZE ||
+        (file.type !== "application/pdf" && !file.type.startsWith("image/") && !file.name.toLowerCase().endsWith(".pdf"))
+      ));
+      if (invalidFile) {
+        window.alert(invalidFile.size > MAX_FILE_SIZE
+          ? `Файл «${invalidFile.name}» больше 3 МБ. Выберите файлы меньшего размера.`
+          : `Файл «${invalidFile.name}» не является PDF или изображением.`);
+        target.value = "";
+        return;
+      }
+      try {
+        const uploadedFiles = await Promise.all(files.map(async (file) => ({
+          id: newId(),
+          name: file.name,
+          type: file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+          data: await fileToDataUrl(file)
+        })));
+        const existingFile = cell.data ? [{
+          id: newId(),
+          name: cell.fileName || "Прикреплённый файл",
+          type: cell.data.startsWith("data:application/pdf") || /\.pdf$/i.test(cell.fileName || "") ? "pdf" : "image",
+          data: cell.data
+        }] : [];
+        cell.files = [...(cell.files || []), ...existingFile, ...uploadedFiles];
+        cell.url = "";
+        if (existingFile.length) {
+          cell.data = "";
+          cell.fileName = "";
+        }
+        persistData();
+        renderEditor();
+      } catch (error) {
+        console.error("Не удалось загрузить файлы ячейки таблицы:", error);
+        window.alert("Не удалось прочитать один или несколько выбранных файлов.");
       }
     }
   }
@@ -733,27 +837,28 @@
       const category = getCategory();
       if (!category) return;
       const type = button.dataset.type;
-      const title = ({ text: "Новый текст", link: "Новая ссылка", image: "Фотография", pdf: "Документ", button: "Новая кнопка", table: "Новая таблица", group: "Новый раздел" })[type];
+      const title = ({ text: "Новый текст", link: "Новая ссылка", image: "Фотография", pdf: "Документ", bundle: "Подборка файлов", button: "Новая кнопка", table: "Новая таблица", group: "Новый раздел" })[type];
       const parent = button.dataset.parentId ? findItem(button.dataset.parentId)?.item : null;
       const targetItems = parent ? parent.children : category.items;
       if (!targetItems) return;
       targetItems.push({
         id: newId(), type, title, text: "", url: "", data: "", fileName: "", displayMode: "click",
         ...(type === "group" ? { children: [] } : {}),
-        ...(type === "table" ? { headers: ["№", "Название", "Описание"], rows: [[{ text: "", url: "", data: "", fileName: "" }, { text: "", url: "", data: "", fileName: "" }, { text: "", url: "", data: "", fileName: "" }]] } : {})
+        ...(type === "bundle" ? { files: [] } : {}),
+        ...(type === "table" ? { headers: ["№", "Название", "Описание"], rows: [[{ text: "", url: "", data: "", fileName: "", files: [] }, { text: "", url: "", data: "", fileName: "", files: [] }, { text: "", url: "", data: "", fileName: "", files: [] }]] } : {})
       });
       persistData();
     } else if (action === "add-table-row" || action === "delete-table-row" || action === "add-table-column" || action === "delete-table-column") {
       const item = findItem(id)?.item;
       if (item?.type !== "table") return;
       if (action === "add-table-row") {
-        item.rows.push(item.headers.map(() => ({ text: "", url: "", data: "", fileName: "" })));
+        item.rows.push(item.headers.map(() => ({ text: "", url: "", data: "", fileName: "", files: [] })));
       } else if (action === "delete-table-row") {
         item.rows.splice(Number(button.dataset.row), 1);
       } else if (action === "add-table-column") {
         item.headers.push(`Столбец ${item.headers.length + 1}`);
         for (const row of item.rows) {
-          row.push({ text: "", url: "", data: "", fileName: "" });
+          row.push({ text: "", url: "", data: "", fileName: "", files: [] });
         }
       } else {
         if (item.headers.length <= 1) {
@@ -775,6 +880,21 @@
         cell.data = "";
         cell.fileName = "";
         cell.url = "";
+        cell.files = [];
+        persistData();
+      }
+    } else if (action === "remove-table-bundle-file") {
+      const item = findItem(id)?.item;
+      const [rowIndex, columnIndex] = button.dataset.cell.split(",").map(Number);
+      const cell = ensureTableCell(item, rowIndex, columnIndex);
+      if (cell) {
+        cell.files.splice(Number(button.dataset.fileIndex), 1);
+        persistData();
+      }
+    } else if (action === "remove-bundle-file") {
+      const item = findItem(id)?.item;
+      if (item?.type === "bundle") {
+        item.files.splice(Number(button.dataset.fileIndex), 1);
         persistData();
       }
     } else if (action === "delete-block") {
@@ -836,6 +956,29 @@
       }
       if (!item) {
         viewerRoot.innerHTML = `<main class="viewer-error"><div><h1>Материал не найден</h1><p>Возможно, он был удалён из портфолио.</p><a href="./viewer.html${sectionId ? `?section=${encodeURIComponent(sectionId)}` : ""}">Вернуться назад</a></div></main>`;
+        return;
+      }
+      const cellBundle = params.get("cellBundle");
+      const cellAsset = params.get("cellAsset");
+      if ((cellBundle || cellAsset) && item.type === "table") {
+        const coordinates = (cellAsset || cellBundle).split(",");
+        const rowIndex = Number(coordinates[0]);
+        const columnIndex = Number(coordinates[1]);
+        const cell = item.rows?.[rowIndex]?.[columnIndex];
+        const asset = cellAsset ? cell?.files?.find((file) => file.id === coordinates[2]) : null;
+        viewerRoot.innerHTML = cell && (cellAsset ? asset : cell.files?.length)
+          ? (asset
+            ? renderViewerTableCellAsset(category, item, itemPath, cell, rowIndex, columnIndex, asset)
+            : renderViewerTableCellBundle(category, item, itemPath, cell, rowIndex, columnIndex))
+          : `<main class="viewer-error"><div><h1>Файл не найден</h1><p>Возможно, его удалили из таблицы.</p><a href="./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(itemPath.join(","))}">Вернуться к таблице</a></div></main>`;
+        return;
+      }
+      const assetId = params.get("asset");
+      if (assetId && item.type === "bundle") {
+        const asset = (item.files || []).find((file) => file.id === assetId);
+        viewerRoot.innerHTML = asset
+          ? renderViewerBundleAsset(category, item, itemPath, asset)
+          : `<main class="viewer-error"><div><h1>Файл не найден</h1><p>Возможно, его удалили из подборки.</p><a href="./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(itemPath.join(","))}">Вернуться к подборке</a></div></main>`;
         return;
       }
       viewerRoot.innerHTML = item.type === "group"
@@ -913,7 +1056,8 @@
 
   function renderViewerCollection(category, items, path, title, backHref) {
     const availableItems = items.filter((item) => (
-      item.type === "text" || item.type === "table" || item.data || safeUrl(item.url) || item.type === "group"
+      item.type === "text" || item.type === "table" || item.data || safeUrl(item.url) ||
+      (item.type === "bundle" && item.files?.length) || item.type === "group"
     ));
     const itemCards = availableItems.map((item, index) => {
       const itemPath = [...path, item.id].join(",");
@@ -929,7 +1073,7 @@
         <span class="category-number">${String(index + 1).padStart(2, "0")}</span>
         <span class="viewer-section-icon">${iconFor(item.type)}</span>
         <span class="category-card-title">${escapeHtml(item.title || item.fileName || "Материал")}</span>
-        <span class="material-type">${item.type === "group" ? "Бөлім · ашу →" : `${escapeHtml(({ text: "Текст", link: "Ссылка", image: "Фотография", pdf: "PDF-документ", button: "Кнопка", table: "Таблица" })[item.type] || "Материал")} · ашу →`}</span>
+        <span class="material-type">${item.type === "group" ? "Бөлім · ашу →" : `${escapeHtml(({ text: "Текст", link: "Ссылка", image: "Фотография", pdf: "PDF-документ", bundle: "Файлы и документы", button: "Кнопка", table: "Таблица" })[item.type] || "Материал")} · ашу →`}</span>
       </a>`;
     }).join("");
     return `
@@ -953,7 +1097,9 @@
     if (item.type === "text") {
       content = `<article class="viewer-content-card"><div class="viewer-content-body">${escapeHtml(item.text || "")}</div></article>`;
     } else if (item.type === "table") {
-      content = renderViewerTable(item);
+      content = renderViewerTable(category, item, path);
+    } else if (item.type === "bundle") {
+      content = renderViewerBundle(category, item, path);
     } else if (item.type === "image" && item.data) {
       content = `<article class="viewer-content-card viewer-detail-media"><img class="viewer-image" src="${escapeHtml(item.data)}" alt="${escapeHtml(item.title || item.fileName || "Портфолио суреті")}" /></article>`;
     } else if (item.type === "pdf" && item.data) {
@@ -975,19 +1121,103 @@
       ${viewerFooter(data.profile.quote)}`;
   }
 
-  function renderViewerTable(item) {
+  function renderViewerBundle(category, item, path) {
+    const files = Array.isArray(item.files) ? item.files : [];
+    if (!files.length) {
+      return `<div class="viewer-empty"><strong>В подборке пока нет файлов</strong><p>Загрузите документы или фотографии в редакторе.</p></div>`;
+    }
+    const itemPath = encodeURIComponent(path.join(","));
+    return `<div class="bundle-preview-grid">${files.map((file, index) => {
+      const href = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${itemPath}&asset=${encodeURIComponent(file.id)}`;
+      const preview = file.type === "image"
+        ? `<img class="bundle-preview-image" src="${escapeHtml(file.data)}" alt="${escapeHtml(file.name || `Фотография ${index + 1}`)}" />`
+        : `<span class="bundle-preview-pdf" aria-hidden="true">PDF</span>`;
+      return `<a class="bundle-preview-card" href="${href}" target="_blank" rel="noopener">
+        ${preview}
+        <span class="bundle-preview-name">${escapeHtml(file.name || `Файл ${index + 1}`)}</span>
+        <span class="material-type">Алдын ала қарау · жаңа бетте ашу ↗</span>
+      </a>`;
+    }).join("")}</div>`;
+  }
+
+  function renderViewerBundleAsset(category, item, path, asset) {
+    const backHref = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(path.join(","))}`;
+    const openHref = asset.data.startsWith("data:application/pdf") || asset.data.startsWith("data:image/")
+      ? asset.data
+      : safeUrl(asset.data);
+    const preview = asset.type === "image"
+      ? `<article class="viewer-content-card viewer-detail-media"><img class="viewer-image bundle-full-image" src="${escapeHtml(asset.data)}" alt="${escapeHtml(asset.name)}" /></article>`
+      : `<article class="viewer-content-card"><iframe class="viewer-pdf" src="${escapeHtml(asset.data)}" title="${escapeHtml(asset.name)}"></iframe></article>`;
+    return `
+      ${viewerHeader(asset.name || item.title, backHref, `← ${item.title}`)}
+      <main class="viewer-main">
+        <section class="viewer-section">
+          <div class="viewer-section-head"><span class="viewer-section-icon">${asset.type === "image" ? "▧" : "▤"}</span><h2>${escapeHtml(asset.name || item.title)}</h2></div>
+          <div class="viewer-toolbar"><a class="button button-outline button-small" href="${escapeHtml(openHref)}" target="_blank" rel="noopener">Файлды бөлек ашу ↗</a></div>
+          ${preview}
+        </section>
+      </main>
+      ${viewerFooter(data.profile.quote)}`;
+  }
+
+  function renderViewerTable(category, item, path) {
     const headers = Array.isArray(item.headers) ? item.headers : [];
     const rows = Array.isArray(item.rows) ? item.rows : [];
     if (!headers.length) return `<div class="viewer-empty"><strong>Таблица әзірлену үстінде</strong><p>Кестеге бағандар қосыңыз.</p></div>`;
     return `<div class="viewer-table-scroll"><table class="viewer-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
-      <tbody>${rows.map((row) => `<tr>${headers.map((_, index) => {
+      <tbody>${rows.map((row, rowIndex) => `<tr>${headers.map((_, index) => {
         const cell = row[index] && typeof row[index] === "object"
           ? row[index]
           : { text: String(row[index] || ""), url: "", data: "" };
-        const href = cell.data || safeUrl(cell.url);
+        const tablePath = encodeURIComponent(path.join(","));
+        const bundleHref = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${tablePath}&cellBundle=${encodeURIComponent(`${rowIndex},${index}`)}`;
+        const href = cell.files?.length ? bundleHref : cell.data || safeUrl(cell.url);
         const text = escapeHtml(cell.text || "");
         return `<td>${href && text ? `<a class="viewer-table-link" href="${escapeHtml(href)}" target="_blank" rel="noopener">${text} ↗</a>` : text}</td>`;
       }).join("")}</tr>`).join("")}</tbody></table></div>`;
+  }
+
+  function renderViewerTableCellBundle(category, item, path, cell, rowIndex, columnIndex) {
+    const tableHref = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(path.join(","))}`;
+    return `
+      ${viewerHeader(cell.text || "Құжаттар мен фотосуреттер", tableHref, "← Кестеге оралу")}
+      <main class="viewer-main">
+        <section class="viewer-section">
+          <div class="viewer-section-head"><span class="viewer-section-icon">▧</span><h2>${escapeHtml(cell.text || "Құжаттар мен фотосуреттер")}</h2></div>
+          <div class="bundle-preview-grid">${cell.files.map((file, index) => {
+            const href = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(path.join(","))}&cellAsset=${encodeURIComponent(`${rowIndex},${columnIndex},${file.id}`)}`;
+            const preview = file.type === "image"
+              ? `<img class="bundle-preview-image" src="${escapeHtml(file.data)}" alt="${escapeHtml(file.name || `Фотография ${index + 1}`)}" />`
+              : `<span class="bundle-preview-pdf" aria-hidden="true">PDF</span>`;
+            return `<a class="bundle-preview-card" href="${href}" target="_blank" rel="noopener">
+              ${preview}
+              <span class="bundle-preview-name">${escapeHtml(file.name || `Файл ${index + 1}`)}</span>
+              <span class="material-type">Алдын ала қарау · жаңа бетте ашу ↗</span>
+            </a>`;
+          }).join("")}</div>
+        </section>
+      </main>
+      ${viewerFooter(data.profile.quote)}`;
+  }
+
+  function renderViewerTableCellAsset(category, item, path, cell, rowIndex, columnIndex, asset) {
+    const backHref = `./viewer.html?section=${encodeURIComponent(category.id)}&path=${encodeURIComponent(path.join(","))}&cellBundle=${encodeURIComponent(`${rowIndex},${columnIndex}`)}`;
+    const openHref = asset.data.startsWith("data:application/pdf") || asset.data.startsWith("data:image/")
+      ? asset.data
+      : safeUrl(asset.data);
+    const preview = asset.type === "image"
+      ? `<article class="viewer-content-card viewer-detail-media"><img class="viewer-image bundle-full-image" src="${escapeHtml(asset.data)}" alt="${escapeHtml(asset.name)}" /></article>`
+      : `<article class="viewer-content-card"><iframe class="viewer-pdf" src="${escapeHtml(asset.data)}" title="${escapeHtml(asset.name)}"></iframe></article>`;
+    return `
+      ${viewerHeader(asset.name || cell.text, backHref, `← ${cell.text || "Подборка"}`)}
+      <main class="viewer-main">
+        <section class="viewer-section">
+          <div class="viewer-section-head"><span class="viewer-section-icon">${asset.type === "image" ? "▧" : "▤"}</span><h2>${escapeHtml(asset.name || cell.text)}</h2></div>
+          <div class="viewer-toolbar"><a class="button button-outline button-small" href="${escapeHtml(openHref)}" target="_blank" rel="noopener">Файлды бөлек ашу ↗</a></div>
+          ${preview}
+        </section>
+      </main>
+      ${viewerFooter(data.profile.quote)}`;
   }
 
   function viewerFooter(quote) {
