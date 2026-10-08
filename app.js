@@ -469,9 +469,13 @@
         </div>
       </section>
       <section class="panel">
-        <div class="panel-heading"><div><h2>Структура портфолио</h2><p>Добавляйте и редактируйте разделы, которые увидят посетители.</p></div><button class="button button-outline button-small" type="button" data-action="add-category">＋ Добавить раздел</button></div>
+        <div class="panel-heading"><div><h2>Структура портфолио</h2><p>Меняйте названия, порядок и значки главных разделов. Порядок здесь будет таким же у посетителей.</p></div><button class="button button-outline button-small" type="button" data-action="add-category">＋ Добавить раздел</button></div>
         ${data.categories.length ? `<div class="block-list">${data.categories.map((category, index) => `
-          <div class="content-block"><div class="block-head"><span class="block-type"><span class="block-type-icon">${escapeHtml(category.icon || "▧")}</span>${escapeHtml(category.title)}</span><button class="button button-quiet button-small" type="button" data-action="select-category" data-id="${escapeHtml(category.id)}">Редактировать · ${index + 1}</button></div></div>`).join("")}</div>` : `<div class="empty-blocks"><strong>Добавьте первый раздел</strong><span>Например: «Достижения» или «Публикации».</span></div>`}
+          <div class="content-block"><div class="block-head"><span class="block-type"><span class="block-type-icon">${escapeHtml(category.icon || "▧")}</span>${escapeHtml(category.title)}</span><div class="block-actions">
+            ${index > 0 ? `<button class="button button-icon" type="button" title="Переместить раздел выше" aria-label="Переместить раздел выше" data-action="move-category" data-index="${index}" data-direction="-1">↑</button>` : ""}
+            ${index < data.categories.length - 1 ? `<button class="button button-icon" type="button" title="Переместить раздел ниже" aria-label="Переместить раздел ниже" data-action="move-category" data-index="${index}" data-direction="1">↓</button>` : ""}
+            <button class="button button-quiet button-small" type="button" data-action="select-category" data-id="${escapeHtml(category.id)}">Редактировать · ${index + 1}</button>
+          </div></div></div>`).join("")}</div>` : `<div class="empty-blocks"><strong>Добавьте первый раздел</strong><span>Например: «Достижения» или «Публикации».</span></div>`}
       </section>`;
   }
 
@@ -482,6 +486,7 @@
         <div class="panel-heading"><div><h2>Название раздела</h2><p>Раздел будет показан отдельной карточкой на странице портфолио.</p></div></div>
         <div class="category-title-row">
           <div class="field"><label for="category-title">Заголовок</label><input id="category-title" data-category="title" value="${escapeHtml(category.title)}" /></div>
+          <div class="field category-icon-field"><label for="category-icon">Значок</label><input id="category-icon" data-category="icon" value="${escapeHtml(category.icon || "▧")}" maxlength="4" /></div>
           <button class="button button-danger button-small" type="button" data-action="delete-category" data-id="${escapeHtml(category.id)}">Удалить раздел</button>
         </div>
         <div class="block-list">
@@ -827,6 +832,13 @@
       selectedId = category.id;
       activeView = "category";
       persistData();
+    } else if (action === "move-category") {
+      const from = Number(button.dataset.index);
+      const to = from + Number(button.dataset.direction);
+      if (from >= 0 && to >= 0 && to < data.categories.length) {
+        [data.categories[from], data.categories[to]] = [data.categories[to], data.categories[from]];
+        persistData();
+      }
     } else if (action === "delete-category") {
       if (!window.confirm("Удалить раздел и все материалы в нём?")) return;
       data.categories = data.categories.filter((category) => category.id !== id);
